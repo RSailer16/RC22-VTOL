@@ -65,6 +65,10 @@ static const uint8_t num_DSM_channels = 6; //If using DSM RX, change this to mat
 #include <SPI.h>      //SPI communication
 #include <PWMServo.h> //Commanding any extra actuators, installed with teensyduino installer
 
+#include "/Users/darrenwees/Desktop/VSCode/Ryans_Stuff/RC22-VTOL/src/TFMPlus/radio.h"
+#include "/Users/darrenwees/Desktop/VSCode/Ryans_Stuff/RC22-VTOL/src/TFMPlus/main.h"
+
+
 #if defined USE_SBUS_RX
   #include "src/SBUS/SBUS.h"   //sBus interface
 #endif
@@ -74,7 +78,7 @@ static const uint8_t num_DSM_channels = 6; //If using DSM RX, change this to mat
 #endif
 
 #if defined USE_MPU6050_I2C
-  #include "src/MPU6050/MPU6050.h"
+  #include "MPU6050/MPU6050.h"
   MPU6050 mpu6050;
 #elif defined USE_MPU9250_SPI
   #include "src/MPU9250/MPU9250.h"
@@ -138,6 +142,11 @@ static const uint8_t num_DSM_channels = 6; //If using DSM RX, change this to mat
   #define ACCEL_SCALE ACCEL_FS_SEL_16
   #define ACCEL_SCALE_FACTOR 2048.0
 #endif
+
+#include <string>
+#include <iostream>
+
+using namespace std;
 
 
 
@@ -301,6 +310,46 @@ int s1_command_PWM, s2_command_PWM, s3_command_PWM, s4_command_PWM, s5_command_P
 //Flight status
 bool armedFly = false;
 
+
+//========================================================================================================================//
+//                                                      FUNCTIONS                                                         //                           
+//========================================================================================================================//
+
+
+
+//=========================================================================================//
+
+//HELPER FUNCTIONS
+void test1() {
+  string a = "hi";
+  cout << a;
+}
+
+
+float invSqrt(float x) {
+  //Fast inverse sqrt for madgwick filter
+  /*
+  float halfx = 0.5f * x;
+  float y = x;
+  long i = *(long*)&y;
+  i = 0x5f3759df - (i>>1);
+  y = *(float*)&i;
+  y = y * (1.5f - (halfx * y * y));
+  y = y * (1.5f - (halfx * y * y));
+  return y;
+  */
+  /*
+  //alternate form:
+  unsigned int i = 0x5F1F1412 - (*(unsigned int*)&x >> 1);
+  float tmp = *(float*)&i;
+  float y = tmp * (1.69000231f - 0.714158168f * x * tmp * tmp);
+  return y;
+  */
+  return 1.0/sqrtf(x); //Teensy is fast enough to just take the compute penalty lol suck it arduino nano
+}
+
+
+
 //========================================================================================================================//
 //                                                      VOID SETUP                                                        //                           
 //========================================================================================================================//
@@ -381,76 +430,6 @@ void setup() {
 }
 
 
-
-//========================================================================================================================//
-//                                                       MAIN LOOP                                                        //                           
-//========================================================================================================================//
-                                                  
-void loop() {
-  //Keep track of what time it is and how much time has elapsed since the last loop
-  prev_time = current_time;      
-  current_time = micros();      
-  dt = (current_time - prev_time)/1000000.0;
-
-  loopBlink(); //Indicate we are in main loop with short blink every 1.5 seconds
-
-  //Print data at 100hz (uncomment one at a time for troubleshooting) - SELECT ONE:
-  //printRadioData();     //Prints radio pwm values (expected: 1000 to 2000)
-  //printDesiredState();  //Prints desired vehicle state commanded in either degrees or deg/sec (expected: +/- maxAXIS for roll, pitch, yaw; 0 to 1 for throttle)
-  //printGyroData();      //Prints filtered gyro data direct from IMU (expected: ~ -250 to 250, 0 at rest)
-  //printAccelData();     //Prints filtered accelerometer data direct from IMU (expected: ~ -2 to 2; x,y 0 when level, z 1 when level)
-  //printMagData();       //Prints filtered magnetometer data direct from IMU (expected: ~ -300 to 300)
-  //printRollPitchYaw();  //Prints roll, pitch, and yaw angles in degrees from Madgwick filter (expected: degrees, 0 when level)
-  //printPIDoutput();     //Prints computed stabilized PID variables from controller and desired setpoint (expected: ~ -1 to 1)
-  //printMotorCommands(); //Prints the values being written to the motors (expected: 120 to 250)
-  //printServoCommands(); //Prints the values being written to the servos (expected: 0 to 180)
-  //printLoopRate();      //Prints the time between loops in microseconds (expected: microseconds between loop iterations)
-
-  // Get arming status
-  armedStatus(); //Check if the throttle cut is off and throttle is low.
-
-  //Get vehicle state
-  getIMUdata(); //Pulls raw gyro, accelerometer, and magnetometer data from IMU and LP filters to remove noise
-  Madgwick(GyroX, -GyroY, -GyroZ, -AccX, AccY, AccZ, MagY, -MagX, MagZ, dt); //Updates roll_IMU, pitch_IMU, and yaw_IMU angle estimates (degrees)
-
-  //Compute desired state
-  getDesState(); //Convert raw commands to normalized values based on saturated control limits
-  
-  //PID Controller - SELECT ONE:
-  controlANGLE(); //Stabilize on angle setpoint
-  //controlANGLE2(); //Stabilize on angle setpoint using cascaded method. Rate controller must be tuned well first!
-  //controlRATE(); //Stabilize on rate setpoint
-
-  //Actuator mixing and scaling to PWM values
-  controlMixer(); //Mixes PID outputs to scaled actuator commands -- custom mixing assignments done here
-  scaleCommands(); //Scales motor commands to 125 to 250 range (oneshot125 protocol) and servo PWM commands to 0 to 180 (for servo library)
-
-  //Throttle cut check
-  throttleCut(); //Directly sets motor commands to low based on state of ch5
-
-  //Command actuators
-  commandMotors(); //Sends command pulses to each motor pin using OneShot125 protocol
-  servo1.write(s1_command_PWM); //Writes PWM value to servo object
-  servo2.write(s2_command_PWM);
-  servo3.write(s3_command_PWM);
-  servo4.write(s4_command_PWM);
-  servo5.write(s5_command_PWM);
-  servo6.write(s6_command_PWM);
-  servo7.write(s7_command_PWM);
-    
-  //Get vehicle commands for next loop iteration
-  getCommands(); //Pulls current available radio commands
-  failSafe(); //Prevent failures in event of bad receiver connection, defaults to failsafe values assigned in setup
-
-  //Regulate loop rate
-  loopRate(2000); //Do not exceed 2000Hz, all filter parameters tuned to 2000Hz by default
-}
-
-
-
-//========================================================================================================================//
-//                                                      FUNCTIONS                                                         //                           
-//========================================================================================================================//
 
 
 
@@ -1708,28 +1687,74 @@ void printLoopRate() {
   }
 }
 
-//=========================================================================================//
 
-//HELPER FUNCTIONS
 
-float invSqrt(float x) {
-  //Fast inverse sqrt for madgwick filter
-  /*
-  float halfx = 0.5f * x;
-  float y = x;
-  long i = *(long*)&y;
-  i = 0x5f3759df - (i>>1);
-  y = *(float*)&i;
-  y = y * (1.5f - (halfx * y * y));
-  y = y * (1.5f - (halfx * y * y));
-  return y;
-  */
-  /*
-  //alternate form:
-  unsigned int i = 0x5F1F1412 - (*(unsigned int*)&x >> 1);
-  float tmp = *(float*)&i;
-  float y = tmp * (1.69000231f - 0.714158168f * x * tmp * tmp);
-  return y;
-  */
-  return 1.0/sqrtf(x); //Teensy is fast enough to just take the compute penalty lol suck it arduino nano
+
+//========================================================================================================================//
+//                                                       MAIN LOOP                                                        //                           
+//========================================================================================================================//
+                                                  
+void loop() {
+  //Keep track of what time it is and how much time has elapsed since the last loop
+  prev_time = current_time;      
+  current_time = micros();      
+  dt = (current_time - prev_time)/1000000.0;
+
+  test();
+
+  loopBlink(); //Indicate we are in main loop with short blink every 1.5 seconds
+
+  //Print data at 100hz (uncomment one at a time for troubleshooting) - SELECT ONE:
+  //printRadioData();     //Prints radio pwm values (expected: 1000 to 2000)
+  //printDesiredState();  //Prints desired vehicle state commanded in either degrees or deg/sec (expected: +/- maxAXIS for roll, pitch, yaw; 0 to 1 for throttle)
+  //printGyroData();      //Prints filtered gyro data direct from IMU (expected: ~ -250 to 250, 0 at rest)
+  //printAccelData();     //Prints filtered accelerometer data direct from IMU (expected: ~ -2 to 2; x,y 0 when level, z 1 when level)
+  //printMagData();       //Prints filtered magnetometer data direct from IMU (expected: ~ -300 to 300)
+  //printRollPitchYaw();  //Prints roll, pitch, and yaw angles in degrees from Madgwick filter (expected: degrees, 0 when level)
+  //printPIDoutput();     //Prints computed stabilized PID variables from controller and desired setpoint (expected: ~ -1 to 1)
+  //printMotorCommands(); //Prints the values being written to the motors (expected: 120 to 250)
+  //printServoCommands(); //Prints the values being written to the servos (expected: 0 to 180)
+  //printLoopRate();      //Prints the time between loops in microseconds (expected: microseconds between loop iterations)
+
+  // Get arming status
+  armedStatus(); //Check if the throttle cut is off and throttle is low.
+
+  //Get vehicle state
+  getIMUdata(); //Pulls raw gyro, accelerometer, and magnetometer data from IMU and LP filters to remove noise
+  Madgwick(GyroX, -GyroY, -GyroZ, -AccX, AccY, AccZ, MagY, -MagX, MagZ, dt); //Updates roll_IMU, pitch_IMU, and yaw_IMU angle estimates (degrees)
+
+  //Compute desired state
+  getDesState(); //Convert raw commands to normalized values based on saturated control limits
+  
+  //PID Controller - SELECT ONE:
+  controlANGLE(); //Stabilize on angle setpoint
+  //controlANGLE2(); //Stabilize on angle setpoint using cascaded method. Rate controller must be tuned well first!
+  //controlRATE(); //Stabilize on rate setpoint
+
+  //Actuator mixing and scaling to PWM values
+  controlMixer(); //Mixes PID outputs to scaled actuator commands -- custom mixing assignments done here
+  scaleCommands(); //Scales motor commands to 125 to 250 range (oneshot125 protocol) and servo PWM commands to 0 to 180 (for servo library)
+
+  //Throttle cut check
+  throttleCut(); //Directly sets motor commands to low based on state of ch5
+
+  //Command actuators
+  commandMotors(); //Sends command pulses to each motor pin using OneShot125 protocol
+  servo1.write(s1_command_PWM); //Writes PWM value to servo object
+  servo2.write(s2_command_PWM);
+  servo3.write(s3_command_PWM);
+  servo4.write(s4_command_PWM);
+  servo5.write(s5_command_PWM);
+  servo6.write(s6_command_PWM);
+  servo7.write(s7_command_PWM);
+    
+  //Get vehicle commands for next loop iteration
+  getCommands(); //Pulls current available radio commands
+  failSafe(); //Prevent failures in event of bad receiver connection, defaults to failsafe values assigned in setup
+
+  //Regulate loop rate
+  loopRate(2000); //Do not exceed 2000Hz, all filter parameters tuned to 2000Hz by default
 }
+
+
+
