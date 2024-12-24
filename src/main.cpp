@@ -29,10 +29,13 @@ Everyone that sends me pictures and videos of your flying creations! -Nick
 //========================================================================================================================//
 //                                                 USER-SPECIFIED DEFINES                                                 //                                                                 
 //========================================================================================================================//
+#include <Arduino.h>
+#include "radio.h"
+
 
 //Uncomment only one receiver type
-#define USE_PWM_RX
-//#define USE_PPM_RX
+//#define USE_PWM_RX
+#define USE_PPM_RX
 //#define USE_SBUS_RX
 //#define USE_DSM_RX
 static const uint8_t num_DSM_channels = 6; //If using DSM RX, change this to match the number of transmitter channels you have
@@ -74,7 +77,7 @@ static const uint8_t num_DSM_channels = 6; //If using DSM RX, change this to mat
 #endif
 
 #if defined USE_MPU6050_I2C
-  #include "src/MPU6050/MPU6050.h"
+ #include "MPU6050/MPU6050.h"
   MPU6050 mpu6050;
 #elif defined USE_MPU9250_SPI
   #include "src/MPU9250/MPU9250.h"
